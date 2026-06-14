@@ -1,181 +1,120 @@
-const { Client, GatewayIntentBits, Events } = require("discord.js");
+const {
+  Client,
+  GatewayIntentBits,
+  Partials
+} = require("discord.js");
+
+const fs = require("fs");
+const config = require("./config");
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
-  ]
+  ],
+  partials: [Partials.Message, Partials.Channel]
 });
 
-// ================= SETTINGS =================
-const TOKEN = process.env.TOKEN;
+const XP_FILE = "./xp.json";
 
-const MUTE_ROLE = "Muted";
-const AUTO_ROLE = "Üye";
-
-const WELCOME_CHANNEL = "💬・sohbet";
-const LOG_CHANNEL = "loglar";
-
-// ================= LEVEL ROLES =================
-const levelRoles = {
-  1: "Çaylak",
-  10: "Aktif",
-  20: "Sadık",
-  40: "Dost",
-  50: "Special"
-};
-
-// ================= BAD WORDS =================
-const badWords = [
-  "salak","mal","aptal","gerizekalı","embesil","dangalak",
-  "yavşak","pezevenk","şerefsiz","piç","oç","amk","aq","mk",
-  "siktir","sik","göt","orospu","kahpe","ibne","yarrak","amcık"
-];
-
-// ================= DATA =================
-const data = {};
-const cooldown = new Map();
-
-// ================= UTIL =================
-function hasLink(text) {
-  return /(https?:\/\/|www\.|discord\.gg|\.com|\.net)/i.test(text);
+// ---------------- XP SYSTEM ----------------
+function getData() {
+  if (!fs.existsSync(XP_FILE)) return {};
+  return JSON.parse(fs.readFileSync(XP_FILE));
 }
 
-function getLevel(xp) {
-  return Math.min(50, Math.floor(xp / 1000));
+function saveData(data) {
+  fs.writeFileSync(XP_FILE, JSON.stringify(data, null, 2));
 }
 
-// ================= BOT READY =================
-client.on("ready", () => {
-  console.log("Bot aktif:", client.user.tag);
-});
+// ---------------- FILTERS ----------------
+const badWords = ["amk", "orospu", "siktir", "aq"];
+const linkRegex = /(https?:\/\/|discord\.gg)/i;
 
-// ================= WELCOME =================
-client.on("guildMemberAdd", async (member) => {
+// ---------------- MUTE ----------------
+async function mute(member, ms) {
+  if (!member) return;
+  await member.timeout(ms).catch(() => {});
+}
 
-  const channel = member.guild.channels.cache.find(
-    c => c.name === WELCOME_CHANNEL
-  );
+// ---------------- EVENTS ----------------
 
-  const role = member.guild.roles.cache.find(
-    r => r.name === AUTO_ROLE
-  );
+// JOIN
+client.on("guildMemberAdd", (member) => {
+  member.roles.add(config.memberRole).catch(() => {});
 
-  if (role && member.manageable) {
-    member.roles.add(role).catch(() => {});
-  }
-
+  const channel = member.guild.channels.cache.get(config.welcomeChannel);
   if (channel) {
-    channel.send(`👋 Hoş geldin ${member}! 🎉`);
+    channel.send(`👋 Hoşgeldin ${member.user}`);
   }
 });
 
-// ================= MESSAGE =================
-client.on("messageCreate", async (msg) => {
+// MESSAGE
+client.on("messageCreate", (message) => {
+  if (message.author.bot) return;
 
-  if (msg.author.bot) return;
+  const data = getData();
+  const id = message.author.id;
 
-  const guild = msg.guild;
-  const member = msg.member;
-  const userId = msg.author.id;
-
-  const muteRole = guild.roles.cache.find(r => r.name === MUTE_ROLE);
-  const logChannel = guild.channels.cache.find(c => c.name === LOG_CHANNEL);
-
-  if (!data[userId]) {
-    data[userId] = {
-      xp: 0,
-      level: 0,
-      lastXP: 0
-    };
+  if (!data[id]) {
+    data[id] = { xp: 0, level: 0, lastXp: 0 };
   }
 
-  const user = data[userId];
+  const user = data[id];
   const now = Date.now();
 
-  async function log(text) {
-    if (logChannel) logChannel.send(text);
-  }
+  // küfür
+  if (badWords.some(w => message.content.toLowerCase().includes(w))) {
+    message.delete().catch(() => {});
+    mute(message.member, 5 * 60 * 1000);
 
-  async function deleteMsg() {
-    if (msg.deletable) await msg.delete().catch(() => {});
-  }
-
-  async function mute(time, reason) {
-    if (!muteRole || !member.manageable) return;
-
-    await member.roles.add(muteRole).catch(() => {});
-
-    setTimeout(() => {
-      member.roles.remove(muteRole).catch(() => {});
-    }, time);
-
-    log(`🔇 ${msg.author.tag} → ${reason}`);
-  }
-
-  // ================= XP COOLDOWN =================
-  if (!cooldown.has(userId)) cooldown.set(userId, 0);
-
-  if (now - cooldown.get(userId) > 60000) {
-
-    const gain = Math.floor(Math.random() * 21) + 10; // 10-30 XP
-    user.xp += gain;
-    cooldown.set(userId, now);
-
-    let newLevel = Math.floor(user.xp / 1000);
-
-    if (newLevel > 50) newLevel = 50;
-
-    if (newLevel > user.level) {
-      user.level = newLevel;
-
-      log(`📈 ${msg.author.tag} level atladı: ${newLevel}`);
-
-      // ROLE SYSTEM
-      const roleName = levelRoles[newLevel];
-      if (roleName) {
-        const role = guild.roles.cache.find(r => r.name === roleName);
-        if (role && member.manageable) {
-          member.roles.add(role).catch(() => {});
-        }
-      }
-    }
-  }
-
-  // ================= LINK =================
-  if (hasLink(msg.content)) {
-    await deleteMsg();
-    await mute(60 * 60 * 1000, "LINK (1 saat)");
+    message.channel.send(`⚠️ ${message.author} 5 dk mute`);
     return;
   }
 
-  // ================= KÜFÜR =================
-  const content = msg.content.toLowerCase();
+  // link
+  if (linkRegex.test(message.content)) {
+    message.delete().catch(() => {});
+    mute(message.member, 60 * 60 * 1000);
 
-  for (let w of badWords) {
-    if (content.includes(w)) {
-      await deleteMsg();
-      await mute(5 * 60 * 1000, "KÜFÜR (5 dk)");
-      return;
+    message.channel.send(`🔗 ${message.author} 1 saat mute`);
+    return;
+  }
+
+  // XP cooldown (1 dk)
+  if (now - user.lastXp < 60000) return;
+
+  const gain = Math.floor(Math.random() * 21) + 10;
+  user.xp += gain;
+  user.lastXp = now;
+
+  let needed = 1000 + user.level * 500;
+
+  if (user.level < 50 && user.xp >= needed) {
+    user.level++;
+    user.xp = 0;
+
+    const roleId = config.roles[user.level];
+    if (roleId) {
+      message.member.roles.add(roleId).catch(() => {});
     }
   }
+
+  saveData(data);
 });
 
-// ================= MESSAGE DELETE LOG =================
-client.on("messageDelete", async (msg) => {
+// MESSAGE DELETE LOG
+client.on("messageDelete", (message) => {
+  const log = message.guild.channels.cache.get(config.logChannel);
+  if (!log) return;
 
-  if (!msg.guild) return;
-
-  const logChannel = msg.guild.channels.cache.find(c => c.name === LOG_CHANNEL);
-
-  if (!logChannel) return;
-
-  logChannel.send(
-    `🗑️ Mesaj silindi\n👤 ${msg.author?.tag}\n💬 ${msg.content || "Bilinmiyor"}`
+  log.send(
+    `🗑️ Mesaj silindi
+👤 ${message.author?.tag}
+💬 ${message.content || "yok"}`
   );
 });
 
-client.login(TOKEN);
+client.login("MTUxNTUxNzE0ODYyMDAwMTQzMA.GJXcah.UQhDsGdWXAItXxM_a_VGmEEPa62RsKpgYopuNo");
