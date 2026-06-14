@@ -1,149 +1,121 @@
-const {
-  Client,
-  GatewayIntentBits,
-  Partials
-} = require("discord.js");
-
-const fs = require("fs");
-const config = require("./config");
+const { Client, GatewayIntentBits, Partials } = require("discord.js");
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ],
-  partials: [Partials.Message, Partials.Channel]
+  partials: [Partials.Message, Partials.Channel, Partials.GuildMember]
 });
 
-const XP_FILE = "./xp.json";
+// VERİ TABANI (basit RAM - Railway restartta sıfırlanır, istersen sonra Mongo yaparız)
+let xp = {};
+let lastXP = {};
+let muted = {};
 
-// ---------------- DATA ----------------
-function getData() {
-  if (!fs.existsSync(XP_FILE)) return {};
-  return JSON.parse(fs.readFileSync(XP_FILE));
-}
-
-function saveData(data) {
-  fs.writeFileSync(XP_FILE, JSON.stringify(data, null, 2));
-}
-
-// ---------------- SAFE DELETE (FIX) ----------------
-async function safeDelete(message) {
-  try {
-    if (!message.deletable) return;
-    await message.delete();
-  } catch (err) {
-    console.log("Silme hatası:", err.message);
-  }
-}
-
-// ---------------- FILTER ----------------
+// KÜFÜR LİSTESİ (istersen büyütürüz)
 const badWords = [
-  "amk","aq","orospu","siktir","piç","yarrak",
-  "fuck","shit","bitch"
+  "amk", "aq", "orospu", "siktir", "piç", "fuck", "shit"
 ];
 
-function containsBadWord(text) {
-  const clean = text.toLowerCase().replace(/[\s\.\-\_]/g, "");
-  return badWords.some(w => clean.includes(w));
+// LINK CHECK
+function isLink(msg) {
+  return msg.includes("http://") || msg.includes("https://") || msg.includes("discord.gg");
 }
 
-const linkRegex = /(https?:\/\/|discord\.gg)/i;
+// LEVEL HESAP
+function getLevel(userXp) {
+  let level = 0;
+  let required = 1000;
 
-// ---------------- MUTE ----------------
-async function mute(member, ms) {
-  if (!member) return;
-  try {
-    await member.timeout(ms);
-  } catch (err) {
-    console.log("Mute hatası:", err.message);
+  while (userXp >= required) {
+    level++;
+    userXp -= required;
+    required += 500;
+  }
+
+  return level;
+}
+
+// ROL VERME
+async function updateRoles(member, level) {
+  const roles = {
+    1: "Çaylak Üye",
+    10: "Aktif Üye",
+    20: "Sadık Üye",
+    30: "Daimi Üye",
+    40: "Special",
+    50: "Elit"
+  };
+
+  if (roles[level]) {
+    const role = member.guild.roles.cache.find(r => r.name === roles[level]);
+    if (role) member.roles.add(role);
   }
 }
 
-// ---------------- JOIN ----------------
-client.on("guildMemberAdd", (member) => {
-  member.roles.add(config.memberRole).catch(() => {});
-
-  const channel = member.guild.channels.cache.get(config.welcomeChannel);
-  if (channel) channel.send(`👋 Hoşgeldin ${member.user}`);
-});
-
-// ---------------- MESSAGE ----------------
-client.on("messageCreate", (message) => {
+// MESSAGE EVENT
+client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  const data = getData();
-  const id = message.author.id;
+  const userId = message.author.id;
+  const content = message.content.toLowerCase();
 
-  if (!data[id]) {
-    data[id] = { xp: 0, level: 0, lastXp: 0 };
+  // KÜFÜR ENGEL
+  if (badWords.some(w => content.includes(w))) {
+    await message.delete();
+
+    const member = message.member;
+    member.timeout(5 * 60 * 1000, "Küfür");
+
+    return message.channel.send(`${message.author} Küfür yasak! 5 dk mute yedin.`);
   }
 
-  const user = data[id];
+  // LINK ENGEL
+  if (isLink(content)) {
+    await message.delete();
+
+    const member = message.member;
+    member.timeout(60 * 60 * 1000, "Link");
+
+    return message.channel.send(`${message.author} Link yasak! 1 saat mute yedin.`);
+  }
+
+  // XP COOLDOWN (2 dk)
   const now = Date.now();
+  if (!lastXP[userId] || now - lastXP[userId] > 120000) {
+    const gain = Math.floor(Math.random() * 21) + 10;
 
-  // ---------------- KÜFÜR ----------------
-  if (containsBadWord(message.content)) {
-    safeDelete(message);
-    mute(message.member, 5 * 60 * 1000);
-    return message.channel.send(`⚠️ ${message.author} 5 dk mute`);
+    if (!xp[userId]) xp[userId] = 0;
+    xp[userId] += gain;
+    lastXP[userId] = now;
+
+    const level = getLevel(xp[userId]);
+
+    updateRoles(message.member, level);
   }
 
-  // ---------------- LINK ----------------
-  if (linkRegex.test(message.content)) {
-    safeDelete(message);
-    mute(message.member, 60 * 60 * 1000);
-    return message.channel.send(`🔗 ${message.author} 1 saat mute`);
-  }
+  // !cekilis
+  if (message.content.startsWith("!cekilis")) {
+    if (!message.member.permissions.has("Administrator")) return;
 
-  // ---------------- XP ----------------
-  if (now - user.lastXp < 60000) return;
+    const args = message.content.split(" ");
+    const duration = 10000; // test için 10 sn (istersen 7 gün yaparız)
+    const prize = args.slice(1).join(" ");
 
-  const gain = Math.floor(Math.random() * 21) + 10;
-  user.xp += gain;
-  user.lastXp = now;
+    message.channel.send(`🎉 ÇEKİLİŞ BAŞLADI: **${prize}**`);
 
-  let needed = 1000 + user.level * 500;
+    setTimeout(async () => {
+      const msgs = await message.channel.messages.fetch({ limit: 50 });
+      const users = msgs.map(m => m.author).filter(u => !u.bot);
 
-  if (user.level < 50 && user.xp >= needed) {
-    user.level++;
-    user.xp = 0;
-  }
+      const winner = users[Math.floor(Math.random() * users.length)];
 
-  saveData(data);
-
-  // ---------------- RANK ----------------
-  if (message.content === "!rank") {
-    return message.reply(`📊 Level: ${user.level}\n⭐ XP: ${user.xp}`);
-  }
-
-  // ---------------- TOPRANK ----------------
-  if (message.content === "!toprank") {
-    const sorted = Object.entries(data)
-      .sort((a, b) => b[1].level - a[1].level || b[1].xp - a[1].xp)
-      .slice(0, 10);
-
-    let text = "🏆 TOP 10\n\n";
-
-    sorted.forEach((u, i) => {
-      text += `#${i + 1} <@${u[0]}> — Level ${u[1].level} | XP ${u[1].xp}\n`;
-    });
-
-    return message.channel.send(text);
+      message.channel.send(`🏆 Kazanan: ${winner}`);
+    }, duration);
   }
 });
 
-// ---------------- DELETE LOG ----------------
-client.on("messageDelete", (message) => {
-  const log = message.guild.channels.cache.get(config.logChannel);
-  if (!log) return;
-
-  log.send(
-    `🗑️ Mesaj silindi\n👤 ${message.author?.tag}\n💬 ${message.content || "yok"}`
-  );
-});
-
-// ---------------- LOGIN ----------------
 client.login(process.env.TOKEN);
