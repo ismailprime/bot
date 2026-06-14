@@ -70,8 +70,7 @@ client.on("messageCreate", (message) => {
     message.delete().catch(() => {});
     mute(message.member, 5 * 60 * 1000);
 
-    message.channel.send(`⚠️ ${message.author} 5 dk mute`);
-    return;
+    return message.channel.send(`⚠️ ${message.author} 5 dk mute`);
   }
 
   // link
@@ -79,11 +78,10 @@ client.on("messageCreate", (message) => {
     message.delete().catch(() => {});
     mute(message.member, 60 * 60 * 1000);
 
-    message.channel.send(`🔗 ${message.author} 1 saat mute`);
-    return;
+    return message.channel.send(`🔗 ${message.author} 1 saat mute`);
   }
 
-  // XP cooldown (1 dk)
+  // XP cooldown
   if (now - user.lastXp < 60000) return;
 
   const gain = Math.floor(Math.random() * 21) + 10;
@@ -117,4 +115,5 @@ client.on("messageDelete", (message) => {
   );
 });
 
-client.login("MTUxNTUxNzE0ODYyMDAwMTQzMA.GJXcah.UQhDsGdWXAItXxM_a_VGmEEPa62RsKpgYopuNo");
+// LOGIN (TOKEN YOK — RAILWAY ENV)
+client.login(process.env.TOKEN);
