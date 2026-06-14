@@ -29,8 +29,21 @@ function saveData(data) {
   fs.writeFileSync(XP_FILE, JSON.stringify(data, null, 2));
 }
 
+// ---------------- SAFE DELETE (FIX) ----------------
+async function safeDelete(message) {
+  try {
+    if (!message.deletable) return;
+    await message.delete();
+  } catch (err) {
+    console.log("Silme hatası:", err.message);
+  }
+}
+
 // ---------------- FILTER ----------------
-const badWords = ["amk","aq","orospu","siktir","piç","yarrak"];
+const badWords = [
+  "amk","aq","orospu","siktir","piç","yarrak",
+  "fuck","shit","bitch"
+];
 
 function containsBadWord(text) {
   const clean = text.toLowerCase().replace(/[\s\.\-\_]/g, "");
@@ -39,15 +52,13 @@ function containsBadWord(text) {
 
 const linkRegex = /(https?:\/\/|discord\.gg)/i;
 
-// ---------------- MUTE (DEBUG) ----------------
+// ---------------- MUTE ----------------
 async function mute(member, ms) {
   if (!member) return;
-
   try {
     await member.timeout(ms);
-    console.log("✅ MUTE OK:", member.user.tag);
   } catch (err) {
-    console.log("❌ MUTE HATA:", err);
+    console.log("Mute hatası:", err.message);
   }
 }
 
@@ -75,14 +86,14 @@ client.on("messageCreate", (message) => {
 
   // ---------------- KÜFÜR ----------------
   if (containsBadWord(message.content)) {
-    message.delete().catch(() => {});
+    safeDelete(message);
     mute(message.member, 5 * 60 * 1000);
     return message.channel.send(`⚠️ ${message.author} 5 dk mute`);
   }
 
   // ---------------- LINK ----------------
   if (linkRegex.test(message.content)) {
-    message.delete().catch(() => {});
+    safeDelete(message);
     mute(message.member, 60 * 60 * 1000);
     return message.channel.send(`🔗 ${message.author} 1 saat mute`);
   }
@@ -103,11 +114,12 @@ client.on("messageCreate", (message) => {
 
   saveData(data);
 
-  // ---------------- KOMUTLAR ----------------
+  // ---------------- RANK ----------------
   if (message.content === "!rank") {
     return message.reply(`📊 Level: ${user.level}\n⭐ XP: ${user.xp}`);
   }
 
+  // ---------------- TOPRANK ----------------
   if (message.content === "!toprank") {
     const sorted = Object.entries(data)
       .sort((a, b) => b[1].level - a[1].level || b[1].xp - a[1].xp)
@@ -123,7 +135,7 @@ client.on("messageCreate", (message) => {
   }
 });
 
-// ---------------- LOG ----------------
+// ---------------- DELETE LOG ----------------
 client.on("messageDelete", (message) => {
   const log = message.guild.channels.cache.get(config.logChannel);
   if (!log) return;
