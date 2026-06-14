@@ -17,9 +17,9 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel]
 });
 
+// ---------------- XP SYSTEM ----------------
 const XP_FILE = "./xp.json";
 
-// ---------------- XP SYSTEM ----------------
 function getData() {
   if (!fs.existsSync(XP_FILE)) return {};
   return JSON.parse(fs.readFileSync(XP_FILE));
@@ -30,7 +30,7 @@ function saveData(data) {
 }
 
 // ---------------- FILTERS ----------------
-const badWords = ["amk", "orospu", "siktir", "aq"];
+const badWords = ["amk", "orospu", "siktir", "aq", "yarrak"];
 const linkRegex = /(https?:\/\/|discord\.gg)/i;
 
 // ---------------- MUTE ----------------
@@ -39,9 +39,7 @@ async function mute(member, ms) {
   await member.timeout(ms).catch(() => {});
 }
 
-// ---------------- EVENTS ----------------
-
-// JOIN
+// ---------------- JOIN EVENT ----------------
 client.on("guildMemberAdd", (member) => {
   member.roles.add(config.memberRole).catch(() => {});
 
@@ -51,7 +49,7 @@ client.on("guildMemberAdd", (member) => {
   }
 });
 
-// MESSAGE
+// ---------------- MESSAGE EVENT ----------------
 client.on("messageCreate", (message) => {
   if (message.author.bot) return;
 
@@ -59,7 +57,11 @@ client.on("messageCreate", (message) => {
   const id = message.author.id;
 
   if (!data[id]) {
-    data[id] = { xp: 0, level: 0, lastXp: 0 };
+    data[id] = {
+      xp: 0,
+      level: 0,
+      lastXp: 0
+    };
   }
 
   const user = data[id];
@@ -69,7 +71,6 @@ client.on("messageCreate", (message) => {
   if (badWords.some(w => message.content.toLowerCase().includes(w))) {
     message.delete().catch(() => {});
     mute(message.member, 5 * 60 * 1000);
-
     return message.channel.send(`⚠️ ${message.author} 5 dk mute`);
   }
 
@@ -77,11 +78,10 @@ client.on("messageCreate", (message) => {
   if (linkRegex.test(message.content)) {
     message.delete().catch(() => {});
     mute(message.member, 60 * 60 * 1000);
-
     return message.channel.send(`🔗 ${message.author} 1 saat mute`);
   }
 
-  // XP cooldown
+  // XP cooldown (1 dk)
   if (now - user.lastXp < 60000) return;
 
   const gain = Math.floor(Math.random() * 21) + 10;
@@ -103,7 +103,7 @@ client.on("messageCreate", (message) => {
   saveData(data);
 });
 
-// MESSAGE DELETE LOG
+// ---------------- DELETE LOG ----------------
 client.on("messageDelete", (message) => {
   const log = message.guild.channels.cache.get(config.logChannel);
   if (!log) return;
@@ -115,5 +115,5 @@ client.on("messageDelete", (message) => {
   );
 });
 
-// LOGIN (TOKEN YOK — RAILWAY ENV)
+// ---------------- LOGIN ----------------
 client.login(process.env.TOKEN);
