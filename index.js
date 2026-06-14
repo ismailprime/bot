@@ -380,7 +380,7 @@ client.on("messageCreate", async (msg) => {
 
   if (content.startsWith("!addxp")) {
 
-    // BURAYA KENDİ DISCORD ID'NI YAZ
+    // 1003708560728920165
 
     if (msg.author.id !== "BURAYA_ID")
       return;
