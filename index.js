@@ -1,271 +1,141 @@
-const { Client, GatewayIntentBits, PermissionsBitField } = require("discord.js");
-const fs = require("fs");
+const { Client, GatewayIntentBits } = require("discord.js");
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildVoiceStates
+    GatewayIntentBits.GuildMembers
   ]
 });
 
-// ================= OWNER =================
-const OWNER_ID = "1003708560728920165";
+// ================= SETTINGS =================
+const MUTE_ROLE = "Muted";
+const AUTO_ROLE = "Üye";
 
-// ================= DATA =================
-const file = "./data.json";
+const WELCOME_CHANNEL = "💬・sohbet";
+const LOG_CHANNEL = "loglar";
 
-let data = fs.existsSync(file)
-  ? JSON.parse(fs.readFileSync(file))
-  : {};
-
-function save() {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
-
-function getUser(id) {
-  if (!data[id]) {
-    data[id] = {
-      xp: 0,
-      coins: 0,
-      warns: 0,
-      spam: 0,
-      lastMsg: 0,
-      daily: 0
-    };
-  }
-  return data[id];
-}
-
-function level(xp) {
-  return Math.floor(xp / 100);
-}
-
-// ================= MODERATION =================
-
+// ================= FILTER =================
 const badWords = [
   "salak","mal","aptal","gerizekalı","embesil","dangalak",
-  "yavşak","pezevenk","şerefsiz","piç","pic","oç","oc",
-  "amk","aq","amq","mk","sg",
-  "siktir","sik","sikim","sikeyim","sikik",
-  "göt","götveren","kahpe","orospu","oruspu",
-  "ibne","lavuk","gerizeka","yarrak","yarak","amına","amcık"
+  "yavşak","pezevenk","şerefsiz","piç","oç","amk","aq","mk",
+  "siktir","sik","göt","orospu","kahpe","ibne","yarrak","amcık"
 ];
-];
-
-function hasLink(text) {
-  return /(https?:\/\/|www\.|discord\.gg)/i.test(text);
-}
 
 function normalize(text) {
   return text
     .toLowerCase()
-    .replace(/1/g, "i")
-    .replace(/0/g, "o")
-    .replace(/\$/g, "s")
-    .replace(/\s+/g, "");
+    .replace(/1/g,"i")
+    .replace(/0/g,"o")
+    .replace(/\$/g,"s")
+    .replace(/@/g,"a")
+    .replace(/\*/g,"")
+    .replace(/\s+/g,"")
+    .replace(/!/g,"i")
+    .replace(/\./g,"");
 }
 
-// ================= LEVEL ROLLER =================
+function hasLink(text) {
+  return /(https?:\/\/|www\.|discord\.gg|\.com|\.net)/i.test(text);
+}
 
-const levelRoles = {
-  15: "Çaylak",
-  30: "Gelişmiş",
-  45: "Usta",
-  60: "Sadık",
-  75: "Profesyonel",
-  90: "Elit"
-};
-
-// ================= SHOP =================
-
-const shop = {
-  prime: {
-    price: 50000,
-    role: "PRIME"
-  }
-};
+// ================= SPAM =================
+const cooldown = new Map();
 
 // ================= BOT =================
-
 client.on("ready", () => {
   console.log("Bot hazır:", client.user.tag);
 });
 
-// ================= MESSAGE =================
-
+// ================= MODERATION =================
 client.on("messageCreate", async (msg) => {
 
   if (msg.author.bot) return;
 
-  const user = getUser(msg.author.id);
+  const guild = msg.guild;
+  const member = msg.member;
+
   const content = normalize(msg.content);
   const now = Date.now();
 
-  const muteRole = msg.guild.roles.cache.find(
-    r => r.name === "Muted"
-  );
+  const muteRole = guild.roles.cache.find(r => r.name === MUTE_ROLE);
+  const logChannel = guild.channels.cache.find(c => c.name === LOG_CHANNEL);
 
-  // ================= SAFE DELETE =================
-  async function safeDelete() {
+  async function log(text) {
+    if (logChannel) logChannel.send(text);
+  }
+
+  async function deleteMsg() {
     if (msg.deletable) {
       await msg.delete().catch(() => {});
     }
   }
 
-  // ================= SAFE MUTE =================
-  function safeMute(duration, text) {
-    if (!muteRole) return;
+  async function mute(duration, reason) {
+    if (!muteRole || !member.manageable) return;
 
-    if (msg.member && msg.member.manageable) {
-      msg.member.roles.add(muteRole).catch(() => {});
-    }
-
-    msg.channel.send(text);
+    await member.roles.add(muteRole).catch(() => {});
 
     setTimeout(() => {
-      if (msg.member && msg.member.manageable) {
-        msg.member.roles.remove(muteRole).catch(() => {});
-      }
+      member.roles.remove(muteRole).catch(() => {});
     }, duration);
+
+    await log(`🔇 ${msg.author.tag} → ${reason}`);
   }
+
+  // ================= SPAM =================
+  if (cooldown.has(msg.author.id)) {
+    const last = cooldown.get(msg.author.id);
+
+    if (now - last < 2000) {
+      await deleteMsg();
+      await mute(10 * 60 * 1000, "SPAM (10 dk mute)");
+      return;
+    }
+  }
+
+  cooldown.set(msg.author.id, now);
 
   // ================= LINK =================
   if (hasLink(msg.content)) {
-
-    await safeDelete();
-
-    safeMute(
-      3600000,
-      `🚫 ${msg.author} link attı! (1 saat mute)`
-    );
-
+    await deleteMsg();
+    await mute(60 * 60 * 1000, "LINK (1 saat mute)");
     return;
   }
 
   // ================= KÜFÜR =================
   if (badWords.some(w => content.includes(w))) {
-
-    await safeDelete();
-
-    user.warns += 1;
-
-    safeMute(
-      300000,
-      `⚠️ ${msg.author} küfür etti! (5 dk mute)`
-    );
-
-    save();
+    await deleteMsg();
+    await mute(5 * 60 * 1000, "KÜFÜR (5 dk mute)");
     return;
   }
+});
 
-  // ================= XP =================
-  user.xp += 10;
-  user.coins += 5;
+// ================= WELCOME + AUTO ROLE =================
+client.on("guildMemberAdd", async (member) => {
 
-  const lvl = level(user.xp);
+  const channel = member.guild.channels.cache.find(
+    c => c.name === WELCOME_CHANNEL
+  );
 
-  if (user.xp % 100 === 0) {
+  const role = member.guild.roles.cache.find(
+    r => r.name === AUTO_ROLE
+  );
 
-    msg.channel.send(
-      `🎉 ${msg.author} level atladı! Level: ${lvl}`
-    );
-
-    const roleName = levelRoles[lvl];
-
-    if (roleName) {
-      const role = msg.guild.roles.cache.find(
-        r => r.name === roleName
-      );
-
-      if (role && msg.member.manageable) {
-        msg.member.roles.add(role).catch(() => {});
-      }
-    }
+  // AUTO ROLE (ÜYE)
+  if (role && member.manageable) {
+    member.roles.add(role).catch(() => {});
   }
 
-  user.lastMsg = now;
+  // WELCOME MESSAGE
+  if (channel) {
+    const count = member.guild.memberCount;
 
-  // ================= !rank =================
-  if (msg.content === "!rank") {
-    return msg.reply(
-      `📊 Level: ${lvl} | XP: ${user.xp} | 💰 Coin: ${user.coins}`
+    channel.send(
+      `👋 Hoş geldin ${member}!\n🎉 Sen ${count}. üyesin\n💬 Sohbete katılmayı unutma!`
     );
   }
-
-  // ================= !daily =================
-  if (msg.content === "!daily") {
-
-    if (now - user.daily < 86400000) {
-      return msg.reply("⏳ 24 saat bekle!");
-    }
-
-    user.coins += 500;
-    user.daily = now;
-
-    msg.reply("🎁 500 coin aldın!");
-  }
-
-  // ================= !shop =================
-  if (msg.content === "!shop") {
-    msg.channel.send(
-      "🛒 SHOP:\n" +
-      Object.entries(shop)
-        .map(([k,v]) => `${k} → ${v.price}`)
-        .join("\n")
-    );
-  }
-
-  // ================= !buy =================
-  if (msg.content.startsWith("!buy")) {
-
-    const item = msg.content.split(" ")[1];
-    const product = shop[item];
-
-    if (!product) return msg.reply("Yok!");
-    if (user.coins < product.price)
-      return msg.reply("Yetersiz coin!");
-
-    const role = msg.guild.roles.cache.find(
-      r => r.name === product.role
-    );
-
-    if (!role) return msg.reply("Rol yok!");
-
-    user.coins -= product.price;
-
-    if (msg.member.manageable) {
-      msg.member.roles.add(role).catch(() => {});
-    }
-
-    msg.reply("Satın alındı!");
-  }
-
-  // ================= !addxp OWNER =================
-  if (msg.content.startsWith("!addxp")) {
-
-    if (msg.author.id !== OWNER_ID) return;
-
-    const args = msg.content.split(" ");
-    const target = msg.mentions.users.first();
-    const amount = parseInt(args[2]);
-
-    if (!target || isNaN(amount))
-      return msg.reply("!addxp @user 100");
-
-    const u = getUser(target.id);
-    u.xp += amount;
-
-    msg.channel.send(
-      `💎 ${target} +${amount} XP aldı!`
-    );
-
-    save();
-  }
-
-  save();
 });
 
 client.login(process.env.TOKEN);
