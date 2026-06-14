@@ -16,13 +16,18 @@ const AUTO_ROLE = "Üye";
 const WELCOME_CHANNEL = "💬・sohbet";
 const LOG_CHANNEL = "loglar";
 
-// ================= FILTER =================
+// ================= MAX BAD WORDS =================
 const badWords = [
-  "salak","mal","aptal","gerizekalı","embesil","dangalak",
-  "yavşak","pezevenk","şerefsiz","piç","oç","amk","aq","mk",
-  "siktir","sik","göt","orospu","kahpe","ibne","yarrak","amcık"
+  "salak","mal","aptal","gerizekalı","embesil","dangalak","ahmak",
+  "yavşak","pezevenk","şerefsiz","piç","pic","oç","oc",
+  "amk","aq","amq","mk","sg",
+  "siktir","sik","sikim","sikeyim","sikik",
+  "göt","götveren","kahpe","orospu","oruspu","ibne","lavuk",
+  "yarrak","yarak","amcık","amına",
+  "a m k","o ç","a.q","a-q","s!k","s1k","g0t"
 ];
 
+// ================= NORMALIZE =================
 function normalize(text) {
   return text
     .toLowerCase()
@@ -31,11 +36,15 @@ function normalize(text) {
     .replace(/\$/g,"s")
     .replace(/@/g,"a")
     .replace(/\*/g,"")
+    .replace(/\./g,"")
+    .replace(/-/g,"")
+    .replace(/_/g,"")
     .replace(/\s+/g,"")
     .replace(/!/g,"i")
-    .replace(/\./g,"");
+    .replace(/\|/g,"");
 }
 
+// ================= LINK CHECK =================
 function hasLink(text) {
   return /(https?:\/\/|www\.|discord\.gg|\.com|\.net)/i.test(text);
 }
@@ -45,7 +54,7 @@ const cooldown = new Map();
 
 // ================= BOT =================
 client.on("ready", () => {
-  console.log("Bot hazır:", client.user.tag);
+  console.log("🛡️ Güvenlik botu hazır:", client.user.tag);
 });
 
 // ================= MODERATION =================
@@ -81,7 +90,7 @@ client.on("messageCreate", async (msg) => {
       member.roles.remove(muteRole).catch(() => {});
     }, duration);
 
-    await log(`🔇 ${msg.author.tag} → ${reason}`);
+    log(`🔇 ${msg.author.tag} → ${reason}`);
   }
 
   // ================= SPAM =================
@@ -105,7 +114,7 @@ client.on("messageCreate", async (msg) => {
   }
 
   // ================= KÜFÜR =================
-  if (badWords.some(w => content.includes(w))) {
+  if (badWords.some(w => content.includes(normalize(w)))) {
     await deleteMsg();
     await mute(5 * 60 * 1000, "KÜFÜR (5 dk mute)");
     return;
@@ -123,7 +132,7 @@ client.on("guildMemberAdd", async (member) => {
     r => r.name === AUTO_ROLE
   );
 
-  // AUTO ROLE (ÜYE)
+  // AUTO ROLE
   if (role && member.manageable) {
     member.roles.add(role).catch(() => {});
   }
