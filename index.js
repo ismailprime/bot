@@ -16,32 +16,16 @@ const AUTO_ROLE = "Üye";
 const WELCOME_CHANNEL = "💬・sohbet";
 const LOG_CHANNEL = "loglar";
 
-// ================= MAX BAD WORDS =================
+// ================= BAD WORDS =================
 const badWords = [
-  "salak","mal","aptal","gerizekalı","embesil","dangalak","ahmak",
-  "yavşak","pezevenk","şerefsiz","piç","pic","oç","oc",
-  "amk","aq","amq","mk","sg",
-  "siktir","sik","sikim","sikeyim","sikik",
-  "göt","götveren","kahpe","orospu","oruspu","ibne","lavuk",
-  "yarrak","yarak","amcık","amına",
-  "a m k","o ç","a.q","a-q","s!k","s1k","g0t"
+  "salak","mal","aptal","gerizekalı","embesil","dangalak",
+  "yavşak","pezevenk","şerefsiz","piç","oç","amk","aq","mk",
+  "siktir","sik","göt","orospu","kahpe","ibne","yarrak","amcık"
 ];
 
-// ================= NORMALIZE =================
+// ================= SIMPLE NORMALIZE (NO REPLACE HEAVY) =================
 function normalize(text) {
-  return text
-    .toLowerCase()
-    .replace(/1/g,"i")
-    .replace(/0/g,"o")
-    .replace(/\$/g,"s")
-    .replace(/@/g,"a")
-    .replace(/\*/g,"")
-    .replace(/\./g,"")
-    .replace(/-/g,"")
-    .replace(/_/g,"")
-    .replace(/\s+/g,"")
-    .replace(/!/g,"i")
-    .replace(/\|/g,"");
+  return text.toLowerCase();
 }
 
 // ================= LINK CHECK =================
@@ -54,10 +38,10 @@ const cooldown = new Map();
 
 // ================= BOT =================
 client.on("ready", () => {
-  console.log("🛡️ Güvenlik botu hazır:", client.user.tag);
+  console.log("🛡️ Bot aktif:", client.user.tag);
 });
 
-// ================= MODERATION =================
+// ================= MESSAGE =================
 client.on("messageCreate", async (msg) => {
 
   if (msg.author.bot) return;
@@ -65,7 +49,7 @@ client.on("messageCreate", async (msg) => {
   const guild = msg.guild;
   const member = msg.member;
 
-  const content = normalize(msg.content);
+  const clean = normalize(msg.content);
   const now = Date.now();
 
   const muteRole = guild.roles.cache.find(r => r.name === MUTE_ROLE);
@@ -76,9 +60,7 @@ client.on("messageCreate", async (msg) => {
   }
 
   async function deleteMsg() {
-    if (msg.deletable) {
-      await msg.delete().catch(() => {});
-    }
+    if (msg.deletable) await msg.delete().catch(() => {});
   }
 
   async function mute(duration, reason) {
@@ -99,7 +81,7 @@ client.on("messageCreate", async (msg) => {
 
     if (now - last < 2000) {
       await deleteMsg();
-      await mute(10 * 60 * 1000, "SPAM (10 dk mute)");
+      await mute(10 * 60 * 1000, "SPAM");
       return;
     }
   }
@@ -109,19 +91,21 @@ client.on("messageCreate", async (msg) => {
   // ================= LINK =================
   if (hasLink(msg.content)) {
     await deleteMsg();
-    await mute(60 * 60 * 1000, "LINK (1 saat mute)");
+    await mute(60 * 60 * 1000, "LINK");
     return;
   }
 
   // ================= KÜFÜR =================
-  if (badWords.some(w => content.includes(normalize(w)))) {
-    await deleteMsg();
-    await mute(5 * 60 * 1000, "KÜFÜR (5 dk mute)");
-    return;
+  for (let i = 0; i < badWords.length; i++) {
+    if (clean.includes(badWords[i])) {
+      await deleteMsg();
+      await mute(5 * 60 * 1000, "KÜFÜR");
+      return;
+    }
   }
 });
 
-// ================= WELCOME + AUTO ROLE =================
+// ================= WELCOME =================
 client.on("guildMemberAdd", async (member) => {
 
   const channel = member.guild.channels.cache.find(
@@ -137,12 +121,12 @@ client.on("guildMemberAdd", async (member) => {
     member.roles.add(role).catch(() => {});
   }
 
-  // WELCOME MESSAGE
+  // WELCOME
   if (channel) {
     const count = member.guild.memberCount;
 
     channel.send(
-      `👋 Hoş geldin ${member}!\n🎉 Sen ${count}. üyesin\n💬 Sohbete katılmayı unutma!`
+      `👋 Hoş geldin ${member}!\n🎉 Sen ${count}. üyesin`
     );
   }
 });
