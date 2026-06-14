@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, PermissionsBitField } = require("discord.js");
 const fs = require("fs");
 
 const client = new Client({
@@ -15,7 +15,6 @@ const client = new Client({
 const OWNER_ID = "1003708560728920165";
 
 // ================= DATA =================
-
 const file = "./data.json";
 
 let data = fs.existsSync(file)
@@ -47,8 +46,13 @@ function level(xp) {
 // ================= MODERATION =================
 
 const badWords = [
-  "salak","mal","aptal","gerizekalı","oç","amk","aq",
-  "siktir","göt","orospu","piç","kahpe","ibne"
+  "salak","mal","aptal","gerizekalı","embesil","dangalak",
+  "yavşak","pezevenk","şerefsiz","piç","pic","oç","oc",
+  "amk","aq","amq","mk","sg",
+  "siktir","sik","sikim","sikeyim","sikik",
+  "göt","götveren","kahpe","orospu","oruspu",
+  "ibne","lavuk","gerizeka","yarrak","yarak","amına","amcık"
+];
 ];
 
 function hasLink(text) {
@@ -90,6 +94,8 @@ client.on("ready", () => {
   console.log("Bot hazır:", client.user.tag);
 });
 
+// ================= MESSAGE =================
+
 client.on("messageCreate", async (msg) => {
 
   if (msg.author.bot) return;
@@ -102,22 +108,39 @@ client.on("messageCreate", async (msg) => {
     r => r.name === "Muted"
   );
 
+  // ================= SAFE DELETE =================
+  async function safeDelete() {
+    if (msg.deletable) {
+      await msg.delete().catch(() => {});
+    }
+  }
+
+  // ================= SAFE MUTE =================
+  function safeMute(duration, text) {
+    if (!muteRole) return;
+
+    if (msg.member && msg.member.manageable) {
+      msg.member.roles.add(muteRole).catch(() => {});
+    }
+
+    msg.channel.send(text);
+
+    setTimeout(() => {
+      if (msg.member && msg.member.manageable) {
+        msg.member.roles.remove(muteRole).catch(() => {});
+      }
+    }, duration);
+  }
+
   // ================= LINK =================
   if (hasLink(msg.content)) {
 
-    await msg.delete().catch(() => {});
+    await safeDelete();
 
-    if (muteRole) {
-      msg.member.roles.add(muteRole).catch(() => {});
-
-      msg.channel.send(
-        `🚫 ${msg.author} link attı! (1 saat mute)`
-      );
-
-      setTimeout(() => {
-        msg.member.roles.remove(muteRole).catch(() => {});
-      }, 3600000);
-    }
+    safeMute(
+      3600000,
+      `🚫 ${msg.author} link attı! (1 saat mute)`
+    );
 
     return;
   }
@@ -125,19 +148,14 @@ client.on("messageCreate", async (msg) => {
   // ================= KÜFÜR =================
   if (badWords.some(w => content.includes(w))) {
 
-    await msg.delete().catch(() => {});
+    await safeDelete();
 
-    msg.channel.send(
+    user.warns += 1;
+
+    safeMute(
+      300000,
       `⚠️ ${msg.author} küfür etti! (5 dk mute)`
     );
-
-    if (muteRole) {
-      msg.member.roles.add(muteRole).catch(() => {});
-
-      setTimeout(() => {
-        msg.member.roles.remove(muteRole).catch(() => {});
-      }, 300000);
-    }
 
     save();
     return;
@@ -162,7 +180,7 @@ client.on("messageCreate", async (msg) => {
         r => r.name === roleName
       );
 
-      if (role) {
+      if (role && msg.member.manageable) {
         msg.member.roles.add(role).catch(() => {});
       }
     }
@@ -218,12 +236,14 @@ client.on("messageCreate", async (msg) => {
 
     user.coins -= product.price;
 
-    msg.member.roles.add(role).catch(() => {});
+    if (msg.member.manageable) {
+      msg.member.roles.add(role).catch(() => {});
+    }
 
     msg.reply("Satın alındı!");
   }
 
-  // ================= !addxp (SADECE SEN) =================
+  // ================= !addxp OWNER =================
   if (msg.content.startsWith("!addxp")) {
 
     if (msg.author.id !== OWNER_ID) return;
