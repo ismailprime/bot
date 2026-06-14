@@ -11,6 +11,9 @@ const client = new Client({
   ]
 });
 
+// ================= OWNER =================
+const OWNER_ID = "1003708560728920165";
+
 // ================= DATA =================
 
 const file = "./data.json";
@@ -34,7 +37,6 @@ function getUser(id) {
       daily: 0
     };
   }
-
   return data[id];
 }
 
@@ -42,40 +44,16 @@ function level(xp) {
   return Math.floor(xp / 100);
 }
 
-// ================= KÜFÜR =================
+// ================= MODERATION =================
 
 const badWords = [
-  "salak",
-  "mal",
-  "aptal",
-  "gerizekalı",
-  "embesil",
-  "dangalak",
-  "yavşak",
-  "pezevenk",
-  "şerefsiz",
-  "piç",
-  "pic",
-  "oç",
-  "oc",
-  "amk",
-  "aq",
-  "amq",
-  "siktir",
-  "sikik",
-  "sikim",
-  "sikeyim",
-  "göt",
-  "götveren",
-  "kahpe",
-  "orospu",
-  "oruspu",
-  "ibne",
-  "lavuk",
-  "gerizeka",
-  "mk",
-  "sg"
+  "salak","mal","aptal","gerizekalı","oç","amk","aq",
+  "siktir","göt","orospu","piç","kahpe","ibne"
 ];
+
+function hasLink(text) {
+  return /(https?:\/\/|www\.|discord\.gg)/i.test(text);
+}
 
 function normalize(text) {
   return text
@@ -83,13 +61,10 @@ function normalize(text) {
     .replace(/1/g, "i")
     .replace(/0/g, "o")
     .replace(/\$/g, "s")
-    .replace(/@/g, "a")
-    .replace(/\*/g, "")
-    .replace(/\./g, "")
     .replace(/\s+/g, "");
 }
 
-// ================= LEVEL ROLLERİ =================
+// ================= LEVEL ROLLER =================
 
 const levelRoles = {
   15: "Çaylak",
@@ -109,306 +84,165 @@ const shop = {
   }
 };
 
-// ================= READY =================
+// ================= BOT =================
 
 client.on("ready", () => {
-  console.log(`Bot hazır: ${client.user.tag}`);
+  console.log("Bot hazır:", client.user.tag);
 });
-
-// ================= MESSAGE =================
 
 client.on("messageCreate", async (msg) => {
 
   if (msg.author.bot) return;
 
   const user = getUser(msg.author.id);
-
   const content = normalize(msg.content);
-
   const now = Date.now();
 
-  // ================= XP =================
+  const muteRole = msg.guild.roles.cache.find(
+    r => r.name === "Muted"
+  );
 
-  user.xp += 10;
-  user.coins += 5;
+  // ================= LINK =================
+  if (hasLink(msg.content)) {
 
-  const lvl = level(user.xp);
+    await msg.delete().catch(() => {});
 
-  // 🎉 LEVEL ATLAMA
+    if (muteRole) {
+      msg.member.roles.add(muteRole).catch(() => {});
 
-  if (user.xp % 100 === 0) {
+      msg.channel.send(
+        `🚫 ${msg.author} link attı! (1 saat mute)`
+      );
 
-    msg.channel.send(
-      `🎉 ${msg.author} level atladı! Level: **${lvl}**`
-    );
-
-    const roleName = levelRoles[lvl];
-
-    if (roleName) {
-
-      const role =
-        msg.guild.roles.cache.find(
-          r => r.name === roleName
-        );
-
-      if (role) {
-
-        msg.member.roles.add(role)
-          .catch(() => {});
-      }
+      setTimeout(() => {
+        msg.member.roles.remove(muteRole).catch(() => {});
+      }, 3600000);
     }
+
+    return;
   }
 
   // ================= KÜFÜR =================
-
   if (badWords.some(w => content.includes(w))) {
-
-    user.warns += 1;
 
     await msg.delete().catch(() => {});
 
     msg.channel.send(
-      `⚠️ ${msg.author} küfür yasak! (${user.warns}/3)`
+      `⚠️ ${msg.author} küfür etti! (5 dk mute)`
     );
 
-    // 🚫 3 WARN = 1 SAAT MUTE
+    if (muteRole) {
+      msg.member.roles.add(muteRole).catch(() => {});
 
-    if (user.warns >= 3) {
-
-      const muteRole =
-        msg.guild.roles.cache.find(
-          r => r.name === "Muted"
-        );
-
-      if (muteRole) {
-
-        msg.member.roles.add(muteRole)
-          .catch(() => {});
-
-        msg.channel.send(
-          `🚫 ${msg.author} 1 saat mute yedi!`
-        );
-
-        setTimeout(() => {
-
-          msg.member.roles.remove(muteRole)
-            .catch(() => {});
-
-        }, 3600000);
-      }
-
-      user.warns = 0;
+      setTimeout(() => {
+        msg.member.roles.remove(muteRole).catch(() => {});
+      }, 300000);
     }
 
     save();
     return;
   }
 
-  // ================= SPAM =================
+  // ================= XP =================
+  user.xp += 10;
+  user.coins += 5;
 
-  if (now - user.lastMsg < 2000) {
+  const lvl = level(user.xp);
 
-    user.spam += 1;
+  if (user.xp % 100 === 0) {
 
-    if (user.spam >= 4) {
+    msg.channel.send(
+      `🎉 ${msg.author} level atladı! Level: ${lvl}`
+    );
 
-      const muteRole =
-        msg.guild.roles.cache.find(
-          r => r.name === "Muted"
-        );
+    const roleName = levelRoles[lvl];
 
-      if (muteRole) {
+    if (roleName) {
+      const role = msg.guild.roles.cache.find(
+        r => r.name === roleName
+      );
 
-        msg.member.roles.add(muteRole)
-          .catch(() => {});
-
-        msg.channel.send(
-          `🚫 ${msg.author} spam nedeniyle 10 dakika mute yedi!`
-        );
-
-        setTimeout(() => {
-
-          msg.member.roles.remove(muteRole)
-            .catch(() => {});
-
-        }, 600000);
+      if (role) {
+        msg.member.roles.add(role).catch(() => {});
       }
-
-      user.spam = 0;
     }
-
-  } else {
-
-    user.spam = 0;
   }
 
   user.lastMsg = now;
 
   // ================= !rank =================
-
-  if (content === "!rank") {
-
+  if (msg.content === "!rank") {
     return msg.reply(
       `📊 Level: ${lvl} | XP: ${user.xp} | 💰 Coin: ${user.coins}`
     );
   }
 
-  // ================= !top =================
-
-  if (content === "!top") {
-
-    const top = Object.entries(data)
-      .sort((a, b) => b[1].xp - a[1].xp)
-      .slice(0, 10);
-
-    let text = "🏆 TOP XP\n\n";
-
-    top.forEach((u, i) => {
-
-      text +=
-        `#${i + 1} <@${u[0]}> - XP: ${u[1].xp}\n`;
-
-    });
-
-    msg.channel.send(text);
-  }
-
   // ================= !daily =================
-
-  if (content === "!daily") {
+  if (msg.content === "!daily") {
 
     if (now - user.daily < 86400000) {
-
-      return msg.reply(
-        "⏳ Günlük ödülünü almak için beklemelisin!"
-      );
+      return msg.reply("⏳ 24 saat bekle!");
     }
 
     user.coins += 500;
-
     user.daily = now;
 
-    msg.reply(
-      "🎁 500 coin kazandın!"
-    );
-  }
-
-  // ================= !coinflip =================
-
-  if (content === "!coinflip") {
-
-    const result =
-      Math.random() < 0.5
-        ? "TURA"
-        : "YAZI";
-
-    msg.reply(
-      `🪙 Sonuç: ${result}`
-    );
-  }
-
-  // ================= !sestop =================
-
-  if (content === "!sestop") {
-
-    const count =
-      msg.guild.members.cache.filter(
-        m => m.voice.channel
-      ).size;
-
-    msg.channel.send(
-      `🔊 Seste bulunan kişi sayısı: ${count}`
-    );
+    msg.reply("🎁 500 coin aldın!");
   }
 
   // ================= !shop =================
-
-  if (content === "!shop") {
-
+  if (msg.content === "!shop") {
     msg.channel.send(
-      "🛒 SHOP\n\n" +
+      "🛒 SHOP:\n" +
       Object.entries(shop)
-        .map(
-          ([k, v]) =>
-            `• ${k} → ${v.price} coin`
-        )
+        .map(([k,v]) => `${k} → ${v.price}`)
         .join("\n")
     );
   }
 
   // ================= !buy =================
+  if (msg.content.startsWith("!buy")) {
 
-  if (content.startsWith("!buy")) {
+    const item = msg.content.split(" ")[1];
+    const product = shop[item];
 
-    const item =
-      content.split(" ")[1];
-
-    const product =
-      shop[item];
-
-    if (!product)
-      return msg.reply(
-        "❌ item bulunamadı!"
-      );
-
+    if (!product) return msg.reply("Yok!");
     if (user.coins < product.price)
-      return msg.reply(
-        "❌ yeterli coin yok!"
-      );
+      return msg.reply("Yetersiz coin!");
 
-    const role =
-      msg.guild.roles.cache.find(
-        r => r.name === product.role
-      );
+    const role = msg.guild.roles.cache.find(
+      r => r.name === product.role
+    );
 
-    if (!role)
-      return msg.reply(
-        "❌ rol bulunamadı!"
-      );
+    if (!role) return msg.reply("Rol yok!");
 
     user.coins -= product.price;
 
-    msg.member.roles.add(role)
-      .catch(() => {});
+    msg.member.roles.add(role).catch(() => {});
 
-    msg.reply(
-      `✅ ${product.role} rolünü satın aldın!`
-    );
+    msg.reply("Satın alındı!");
   }
 
-  // ================= ADMIN XP =================
+  // ================= !addxp (SADECE SEN) =================
+  if (msg.content.startsWith("!addxp")) {
 
-  if (content.startsWith("!addxp")) {
+    if (msg.author.id !== OWNER_ID) return;
 
-    // 1003708560728920165
+    const args = msg.content.split(" ");
+    const target = msg.mentions.users.first();
+    const amount = parseInt(args[2]);
 
-    if (msg.author.id !== "BURAYA_ID")
-      return;
+    if (!target || isNaN(amount))
+      return msg.reply("!addxp @user 100");
 
-    const args =
-      msg.content.split(" ");
-
-    const target =
-      msg.mentions.users.first();
-
-    const amount =
-      parseInt(args[2]);
-
-    if (!target || isNaN(amount)) {
-
-      return msg.reply(
-        "!addxp @user 100"
-      );
-    }
-
-    const targetUser =
-      getUser(target.id);
-
-    targetUser.xp += amount;
+    const u = getUser(target.id);
+    u.xp += amount;
 
     msg.channel.send(
-      `💎 ${target} kullanıcısına ${amount} XP verildi!`
+      `💎 ${target} +${amount} XP aldı!`
     );
+
+    save();
   }
 
   save();
