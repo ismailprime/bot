@@ -10,36 +10,46 @@ const client = new Client({
   partials: [Partials.Message, Partials.Channel, Partials.GuildMember]
 });
 
-// VERİ TABANI (basit RAM - Railway restartta sıfırlanır, istersen sonra Mongo yaparız)
+// DATA
 let xp = {};
 let lastXP = {};
-let muted = {};
+let xpCooldown = {};
 
-// KÜFÜR LİSTESİ (istersen büyütürüz)
+// KÜFÜR LİSTESİ
 const badWords = [
-  "amk", "aq", "orospu", "siktir", "piç", "fuck", "shit"
+  "amk","aq","orospu","oç","oc","piç","siktir","sik",
+  "fuck","shit","bitch","motherfucker"
 ];
 
 // LINK CHECK
-function isLink(msg) {
-  return msg.includes("http://") || msg.includes("https://") || msg.includes("discord.gg");
+function isLink(text) {
+  return text.includes("http://") ||
+         text.includes("https://") ||
+         text.includes("discord.gg");
 }
 
-// LEVEL HESAP
+// NORMALIZE (bypass engel)
+function normalizeText(text) {
+  return text
+    .toLowerCase()
+    .replace(/[\W_]+/g, "")
+    .replace(/\s+/g, "");
+}
+
+// LEVEL SYSTEM
 function getLevel(userXp) {
   let level = 0;
   let required = 1000;
 
   while (userXp >= required) {
-    level++;
     userXp -= required;
     required += 500;
+    level++;
   }
-
   return level;
 }
 
-// ROL VERME
+// ROLE SYSTEM
 async function updateRoles(member, level) {
   const roles = {
     1: "Çaylak Üye",
@@ -52,69 +62,93 @@ async function updateRoles(member, level) {
 
   if (roles[level]) {
     const role = member.guild.roles.cache.find(r => r.name === roles[level]);
-    if (role) member.roles.add(role);
+    if (role) member.roles.add(role).catch(() => {});
   }
 }
 
-// MESSAGE EVENT
+// 👋 HOŞ GELDİN + OTOMATİK ROL
+client.on("guildMemberAdd", async (member) => {
+  const role = member.guild.roles.cache.find(r => r.name === "Üye");
+  if (role) member.roles.add(role).catch(() => {});
+
+  const channel = member.guild.channels.cache.find(c => c.name === "💬・sohbet");
+  if (channel) {
+    channel.send(`👋 Hoş geldin ${member}! Sunucuya katıldın 🎉`);
+  }
+});
+
+// 💬 MESSAGE SYSTEM
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
   const userId = message.author.id;
-  const content = message.content.toLowerCase();
+  const raw = message.content;
+  const clean = normalizeText(raw);
 
-  // KÜFÜR ENGEL
-  if (badWords.some(w => content.includes(w))) {
-    await message.delete();
-
-    const member = message.member;
-    member.timeout(5 * 60 * 1000, "Küfür");
-
-    return message.channel.send(`${message.author} Küfür yasak! 5 dk mute yedin.`);
+  // 🚫 KÜFÜR
+  if (badWords.some(w => clean.includes(w))) {
+    await message.delete().catch(() => {});
+    message.member.timeout(5 * 60 * 1000, "Küfür");
+    return message.channel.send(`${message.author} Küfür yasak! 5 dk mute.`);
   }
 
-  // LINK ENGEL
-  if (isLink(content)) {
-    await message.delete();
-
-    const member = message.member;
-    member.timeout(60 * 60 * 1000, "Link");
-
-    return message.channel.send(`${message.author} Link yasak! 1 saat mute yedin.`);
+  // 🔗 LINK
+  if (isLink(raw)) {
+    await message.delete().catch(() => {});
+    message.member.timeout(60 * 60 * 1000, "Link");
+    return message.channel.send(`${message.author} Link yasak! 1 saat mute.`);
   }
 
-  // XP COOLDOWN (2 dk)
+  // ⭐ XP SYSTEM
   const now = Date.now();
-  if (!lastXP[userId] || now - lastXP[userId] > 120000) {
+  if (!xp[userId]) xp[userId] = 0;
+
+  if (!xpCooldown[userId] || now - xpCooldown[userId] > 120000) {
     const gain = Math.floor(Math.random() * 21) + 10;
 
-    if (!xp[userId]) xp[userId] = 0;
     xp[userId] += gain;
-    lastXP[userId] = now;
+    xpCooldown[userId] = now;
 
     const level = getLevel(xp[userId]);
-
     updateRoles(message.member, level);
   }
 
-  // !cekilis
+  // 🎉 ÇEKİLİŞ
   if (message.content.startsWith("!cekilis")) {
     if (!message.member.permissions.has("Administrator")) return;
 
-    const args = message.content.split(" ");
-    const duration = 10000; // test için 10 sn (istersen 7 gün yaparız)
-    const prize = args.slice(1).join(" ");
-
-    message.channel.send(`🎉 ÇEKİLİŞ BAŞLADI: **${prize}**`);
+    const prize = message.content.split(" ").slice(1).join(" ");
+    message.channel.send(`🎉 ÇEKİLİŞ: **${prize}**`);
 
     setTimeout(async () => {
       const msgs = await message.channel.messages.fetch({ limit: 50 });
       const users = msgs.map(m => m.author).filter(u => !u.bot);
 
       const winner = users[Math.floor(Math.random() * users.length)];
-
       message.channel.send(`🏆 Kazanan: ${winner}`);
-    }, duration);
+    }, 10000);
+  }
+
+  // 👑 ADMIN XP VER
+  if (message.content.startsWith("!xpver")) {
+    if (!message.member.permissions.has("Administrator")) return;
+
+    const args = message.content.split(" ");
+    const user = message.mentions.members.first();
+    const amount = parseInt(args[2]);
+
+    if (!user || isNaN(amount)) {
+      return message.reply("Kullanım: !xpver @kişi 500");
+    }
+
+    if (!xp[user.id]) xp[user.id] = 0;
+
+    xp[user.id] += amount;
+
+    const level = getLevel(xp[user.id]);
+    updateRoles(user, level);
+
+    message.channel.send(`⭐ ${user} +${amount} XP aldı!`);
   }
 });
 
