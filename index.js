@@ -29,29 +29,44 @@ function saveData(data) {
   fs.writeFileSync(XP_FILE, JSON.stringify(data, null, 2));
 }
 
-// ---------------- DAHA GÜÇLÜ KÜFÜR FİLTRESİ ----------------
+// ---------------- AKILLI FİLTRE ----------------
 const badWords = [
-  "amk","aq","a.q","a m k",
+  "amk","aq","a.q","a m k","amq",
   "orospu","oç","oc",
   "siktir","sik","sikeyim",
   "yarrak","yarak",
   "piç","pic",
   "kahpe",
-  "fuck","shit","bitch"
+  "ibne",
+  "fuck","shit","bitch","asshole","dick"
 ];
 
+// daha güçlü yakalama
 function containsBadWord(text) {
   const clean = text
     .toLowerCase()
-    .replace(/[\s\.\-\_]/g, "");
+    .replace(/[\s\.\-\_]/g, "")
+    .replace(/[^a-zğüşöçı0-9]/gi, "");
 
-  return badWords.some(word =>
-    clean.includes(word.replace(/[\s\.\-\_]/g, ""))
+  return badWords.some(w =>
+    clean.includes(w.replace(/[\s\.\-\_]/g, ""))
   );
 }
 
-// ---------------- LINK ----------------
-const linkRegex = /(https?:\/\/|discord\.gg)/i;
+// ---------------- SPAM SYSTEM ----------------
+const spamMap = new Map();
+
+function isSpam(userId) {
+  const now = Date.now();
+  const data = spamMap.get(userId) || [];
+
+  const filtered = data.filter(t => now - t < 5000);
+  filtered.push(now);
+
+  spamMap.set(userId, filtered);
+
+  return filtered.length >= 6; // 5 saniyede 6 mesaj = spam
+}
 
 // ---------------- MUTE ----------------
 async function mute(member, ms) {
@@ -75,27 +90,39 @@ client.on("messageCreate", (message) => {
   const id = message.author.id;
 
   if (!data[id]) {
-    data[id] = { xp: 0, level: 0, lastXp: 0 };
+    data[id] = { xp: 0, level: 0, lastXp: 0, warns: 0 };
   }
 
   const user = data[id];
   const now = Date.now();
 
+  // ---------------- SPAM ----------------
+  if (isSpam(id)) {
+    message.delete().catch(() => {});
+    mute(message.member, 10 * 60 * 1000);
+    return message.channel.send(`⚠️ ${message.author} spam yaptığı için 10 dk mute`);
+  }
+
   // ---------------- KÜFÜR ----------------
   if (containsBadWord(message.content)) {
-    message.delete().catch(() => {}); // MESAJ SİL
+    message.delete().catch(() => {});
+    user.warns++;
 
-    mute(message.member, 5 * 60 * 1000); // 5 dk mute
+    if (user.warns >= 3) {
+      mute(message.member, 60 * 60 * 1000);
+      user.warns = 0;
+      return message.channel.send(`⛔ ${message.author} 3 uyarı → 1 saat mute`);
+    }
 
-    return message.channel.send(`⚠️ ${message.author} küfür ettiği için 5 dk mute yedi`);
+    mute(message.member, 5 * 60 * 1000);
+    return message.channel.send(`⚠️ ${message.author} küfür → 5 dk mute`);
   }
 
   // ---------------- LINK ----------------
-  if (linkRegex.test(message.content)) {
+  if (/(https?:\/\/|discord\.gg)/i.test(message.content)) {
     message.delete().catch(() => {});
     mute(message.member, 60 * 60 * 1000);
-
-    return message.channel.send(`🔗 ${message.author} link attığı için 1 saat mute`);
+    return message.channel.send(`🔗 ${message.author} link → 1 saat mute`);
   }
 
   // ---------------- XP ----------------
@@ -118,7 +145,6 @@ client.on("messageCreate", (message) => {
   saveData(data);
 
   // ---------------- KOMUTLAR ----------------
-
   if (message.content === "!rank") {
     return message.reply(`📊 Level: ${user.level}\n⭐ XP: ${user.xp}`);
   }
@@ -128,7 +154,7 @@ client.on("messageCreate", (message) => {
       .sort((a, b) => b[1].level - a[1].level || b[1].xp - a[1].xp)
       .slice(0, 10);
 
-    let text = "🏆 TOP 10 LEADERBOARD\n\n";
+    let text = "🏆 TOP 10\n\n";
 
     sorted.forEach((u, i) => {
       text += `#${i + 1} <@${u[0]}> — Level ${u[1].level} | XP ${u[1].xp}\n`;
@@ -144,7 +170,9 @@ client.on("messageDelete", (message) => {
   if (!log) return;
 
   log.send(
-    `🗑️ Mesaj silindi\n👤 ${message.author?.tag}\n💬 ${message.content || "yok"}`
+    `🗑️ Mesaj silindi
+👤 ${message.author?.tag}
+💬 ${message.content || "yok"}`
   );
 });
 
